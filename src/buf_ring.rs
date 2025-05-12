@@ -1,7 +1,7 @@
 use io_uring::types::BufRingEntry;
 use std::sync::atomic::{AtomicU16, Ordering};
 
-pub(crate) mod state {
+pub mod state {
     pub struct Uninit;
     pub struct Registered;
     pub struct Init;
@@ -195,9 +195,7 @@ impl BufRing<state::Init> {
     ///
     /// The caller must ensure that `offset` is < `self.entries()`
     pub unsafe fn entry(&self, offset: u16) -> *const BufRingEntry {
-        unsafe {
-            self.base.offset(offset as isize)
-        }
+        unsafe { self.base.offset(offset as isize) }
     }
 
     /// # Safety
@@ -214,9 +212,7 @@ impl BufRing<state::Init> {
     ///
     /// The caller must ensure that an entry has been written into the buf ring.
     pub unsafe fn advance(&mut self, count: u16) {
-        unsafe {
-            self.advance_(count)
-        }
+        unsafe { self.advance_(count) }
     }
 }
 
@@ -274,9 +270,7 @@ impl<S> BufRing<S> {
     }
 
     pub unsafe fn tail(&self) -> u32 {
-        unsafe {
-            *BufRingEntry::tail(self.base) as u32
-        }
+        unsafe { *BufRingEntry::tail(self.base) as u32 }
     }
 
     /// # Safety
