@@ -34,7 +34,7 @@ pub enum MapPrivacy {
 
 impl BufRing<state::Uninit> {
     pub fn new(entries: u16, buf_size: u32, bgid: u16) -> std::io::Result<Self> {
-        Self::new_with_opts(entries, buf_size, bgid, Default::defalut())
+        Self::new_with_opts(entries, buf_size, bgid, Default::default())
     }
 
     pub fn new_with_opts(
@@ -187,7 +187,7 @@ impl BufRing<state::Init> {
     pub fn buffer_id_from_cqe<'a, 'b, E: io_uring::cqueue::EntryMarker>(
         &'a mut self,
         cqe: &'b E,
-    ) -> Option<BufferId<'_, '_, E>> {
+    ) -> Option<BufferId<'a, 'b, E>> {
         BufferId::new(self, cqe)
     }
 
