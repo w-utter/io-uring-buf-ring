@@ -33,7 +33,7 @@ pub enum MapPrivacy {
 }
 
 impl BufRing<state::Uninit> {
-    pub fn new(mut entries: u16, buf_size: u32, bgid: u16) -> std::io::Result<Self> {
+    pub fn new(entries: u16, buf_size: u32, bgid: u16) -> std::io::Result<Self> {
         Self::new_with_opts(entries, buf_size, bgid, Default::defalut())
     }
 
@@ -47,8 +47,8 @@ impl BufRing<state::Uninit> {
             return Err(std::io::Error::from(std::io::ErrorKind::InvalidInput));
         }
 
-        if !entries.is_power_of_2() {
-            entries = entries.next_power_of_2()
+        if !entries.is_power_of_two() {
+            entries = entries.next_power_of_two()
         }
         let mask = entries - 1;
 
@@ -82,7 +82,7 @@ impl BufRing<state::Uninit> {
         let base = raw_base as *mut BufRingEntry;
 
         let buffer_base: *const u8 = unsafe {
-            raw_base.offset(entries as isize * std::mem::size_of::<BufRingEntry>() as usize)
+            raw_base.offset(entries as isize * std::mem::size_of::<BufRingEntry>() as isize)
                 as *const u8
         };
 
@@ -93,9 +93,9 @@ impl BufRing<state::Uninit> {
 
         Ok(Self {
             base,
-            entries,
+            entries: entries as u32,
             buf_size,
-            mask,
+            mask: mask as u32,
             bgid,
             buffer_base,
             state: PhantomData,
@@ -115,7 +115,7 @@ impl BufRing<state::Uninit> {
         {
             return Err((e, self));
         }
-        Self {
+        let Self {
             base,
             entries,
             buf_size,
@@ -145,7 +145,7 @@ impl BufRing<state::Registered> {
         unsafe { self.unregister_(submitter) }
     }
 
-    pub fn init(self) -> BufRing<state::Init> {
+    pub fn init(mut self) -> BufRing<state::Init> {
         let entries = self.entries();
 
         for i in 0..entries {
@@ -154,7 +154,7 @@ impl BufRing<state::Registered> {
 
         unsafe { self.advance_(entries) };
 
-        Self {
+        let Self {
             base,
             entries,
             buf_size,
@@ -164,7 +164,7 @@ impl BufRing<state::Registered> {
             ..
         } = self;
 
-        Ok(BufRing {
+        BufRing {
             base,
             entries,
             buf_size,
@@ -172,7 +172,7 @@ impl BufRing<state::Registered> {
             bgid,
             buffer_base,
             state: PhantomData,
-        })
+        }
     }
 }
 
@@ -184,10 +184,10 @@ impl BufRing<state::Init> {
         unsafe { self.unregister_(submitter) }
     }
 
-    pub fn buffer_id_from_cqe<E: io_uring::cqueue::EntryMarker>(
-        &mut self,
-        cqe: &E,
-    ) -> BufferId<'_, '_, E> {
+    pub fn buffer_id_from_cqe<'a, 'b, E: io_uring::cqueue::EntryMarker>(
+        &'a mut self,
+        cqe: &'b E,
+    ) -> Option<BufferId<'_, '_, E>> {
         BufferId::new(self, cqe)
     }
 
@@ -195,7 +195,9 @@ impl BufRing<state::Init> {
     ///
     /// The caller must ensure that `offset` is < `self.entries()`
     pub unsafe fn entry(&self, offset: u16) -> *const BufRingEntry {
-        self.base.offset(offset as isize)
+        unsafe {
+            self.base.offset(offset as isize)
+        }
     }
 
     /// # Safety
@@ -212,7 +214,9 @@ impl BufRing<state::Init> {
     ///
     /// The caller must ensure that an entry has been written into the buf ring.
     pub unsafe fn advance(&mut self, count: u16) {
-        self.advance_(count)
+        unsafe {
+            self.advance_(count)
+        }
     }
 }
 
@@ -240,8 +244,10 @@ impl<S> BufRing<S> {
     /// The caller must ensure `buf_id` < `self.entries()`
     #[inline]
     unsafe fn get_buffer(&self, buf_id: u16) -> *const u8 {
-        self.buffer_base
-            .offset((buf_id as u32 * self.buf_size) as isize)
+        unsafe {
+            self.buffer_base
+                .offset((buf_id as u32 * self.buf_size) as isize)
+        }
     }
 
     /// # Safety
@@ -268,7 +274,9 @@ impl<S> BufRing<S> {
     }
 
     pub unsafe fn tail(&self) -> u32 {
-        *BufRingEntry::tail(self.base) as u32
+        unsafe {
+            *BufRingEntry::tail(self.base) as u32
+        }
     }
 
     /// # Safety
@@ -282,7 +290,7 @@ impl<S> BufRing<S> {
             return Err((e, self));
         }
 
-        Self {
+        let Self {
             base,
             entries,
             buf_size,
