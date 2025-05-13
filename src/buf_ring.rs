@@ -65,9 +65,10 @@ impl BufRing<state::Uninit> {
 
         let buf_ring_size =
             entries as usize * (buf_size as usize + core::mem::size_of::<BufRingEntry>());
-        let raw_base = unsafe {
+
+        let base = unsafe {
             match libc::mmap(
-                std::ptr::null_mut(),
+                core::ptr::null_mut(),
                 buf_ring_size,
                 libc::PROT_READ | libc::PROT_WRITE,
                 map_flags,
@@ -79,12 +80,12 @@ impl BufRing<state::Uninit> {
             }
         };
 
-        let base = raw_base as *mut BufRingEntry;
-
-        let buffer_base: *const u8 = unsafe {
-            raw_base.offset(entries as isize * std::mem::size_of::<BufRingEntry>() as isize)
+        let buf_base: *const u8 = unsafe {
+            base.offset(entries as isize * core::mem::size_of::<BufRingEntry>() as isize)
                 as *const u8
         };
+
+        let base = base as *mut _;
 
         unsafe {
             let tail = BufRingEntry::tail(base);
@@ -97,7 +98,7 @@ impl BufRing<state::Uninit> {
             buf_size,
             mask: mask as u32,
             bgid,
-            buffer_base,
+            buffer_base: buf_base,
             state: PhantomData,
         })
     }
@@ -115,25 +116,8 @@ impl BufRing<state::Uninit> {
         {
             return Err((e, self));
         }
-        let Self {
-            base,
-            entries,
-            buf_size,
-            mask,
-            bgid,
-            buffer_base,
-            ..
-        } = self;
-
-        Ok(BufRing {
-            base,
-            entries,
-            buf_size,
-            mask,
-            bgid,
-            buffer_base,
-            state: PhantomData,
-        })
+        // SAFETY: same type layout
+        Ok(unsafe { core::mem::transmute(self) })
     }
 }
 
@@ -151,28 +135,10 @@ impl BufRing<state::Registered> {
         for i in 0..entries {
             unsafe { self.add(i, i) };
         }
+        unsafe { self.advance_(entries) }
 
-        unsafe { self.advance_(entries) };
-
-        let Self {
-            base,
-            entries,
-            buf_size,
-            mask,
-            bgid,
-            buffer_base,
-            ..
-        } = self;
-
-        BufRing {
-            base,
-            entries,
-            buf_size,
-            mask,
-            bgid,
-            buffer_base,
-            state: PhantomData,
-        }
+        // SAFETY: same type layout
+        unsafe { core::mem::transmute(self) }
     }
 }
 
@@ -224,15 +190,16 @@ impl<S> BufRing<S> {
     /// The caller must ensure that `buf_id` and `buf_offset` is < `self.entries()`
     #[inline]
     unsafe fn add(&mut self, buf_id: u16, buf_offset: u16) {
-        unsafe {
+        let (entry, buffer_addr) = unsafe {
             let offset = (self.tail() + buf_offset as u32) & self.mask;
-
-            let entry = &mut *self.base.offset(offset as isize);
-
-            entry.set_addr(self.get_buffer(buf_id) as u64);
-            entry.set_len(self.buf_size);
-            entry.set_bid(buf_id);
+            (
+                &mut *self.base.offset(offset as isize),
+                self.get_buffer(buf_id),
+            )
         };
+        entry.set_addr(buffer_addr as u64);
+        entry.set_len(self.buf_size);
+        entry.set_bid(buf_id);
     }
 
     /// # Safety
@@ -257,6 +224,13 @@ impl<S> BufRing<S> {
         }
     }
 
+    pub unsafe fn init_(&mut self) {
+        unsafe {
+            let tail = BufRingEntry::tail(self.base);
+            let _ = AtomicU16::from_ptr(tail as _).store(0, Ordering::Relaxed);
+        }
+    }
+
     pub fn entries(&self) -> u16 {
         self.entries as u16
     }
@@ -269,8 +243,14 @@ impl<S> BufRing<S> {
         self.bgid
     }
 
+    /// # Safety
+    ///
+    /// The caller must ensure that this `BufRing` is already initialized
     pub unsafe fn tail(&self) -> u32 {
-        unsafe { *BufRingEntry::tail(self.base) as u32 }
+        unsafe {
+            let ptr = BufRingEntry::tail(self.base);
+            core::ptr::addr_of!(ptr) as u32
+        }
     }
 
     /// # Safety
@@ -284,25 +264,8 @@ impl<S> BufRing<S> {
             return Err((e, self));
         }
 
-        let Self {
-            base,
-            entries,
-            buf_size,
-            mask,
-            bgid,
-            buffer_base,
-            ..
-        } = self;
-
-        Ok(BufRing {
-            base,
-            entries,
-            buf_size,
-            mask,
-            bgid,
-            buffer_base,
-            state: PhantomData,
-        })
+        // SAFETY: same type layout
+        Ok(unsafe { core::mem::transmute(self) })
     }
 }
 
@@ -310,9 +273,9 @@ impl<S> Drop for BufRing<S> {
     fn drop(&mut self) {
         let buf_ring_size =
             self.entries as usize * (self.buf_size as usize + core::mem::size_of::<BufRingEntry>());
-
         unsafe {
             libc::munmap(self.base.cast(), buf_ring_size);
         }
     }
 }
+
