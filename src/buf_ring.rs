@@ -153,7 +153,7 @@ impl BufRing<state::Init> {
     pub fn buffer_id_from_cqe<'a, 'b, E: io_uring::cqueue::EntryMarker>(
         &'a mut self,
         cqe: &'b E,
-    ) -> Option<BufferId<'a, 'b, E>> {
+    ) -> std::io::Result<Option<BufferId<'a, 'b, E>>> {
         BufferId::new(self, cqe)
     }
 
